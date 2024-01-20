@@ -1,0 +1,35 @@
+unsigned int i;
+unsigned int j;
+
+void MSdelay(unsigned int val)
+{
+ for(i=0;i<val;i++)
+ for(j=0;j<165;j++);
+}
+/*void interrupt()
+{
+if(INTCON.INTF==1)
+{
+//go- to wait until start push button (still not written).
+INTCON=INTCON | 0xFD;//set INTF to 0.
+}
+}*/
+void main()
+{
+TRISD = 0x00; // Set all pins on PORTD as output
+PORTD = 0x00; // Set D0 and D1 on PORTD as 0s
+while(1)
+{//stepper 1 goes down until it hits limit switch (interrupt)
+    PORTD = PORTD & 0xFE; // Set direction to 0
+    PORTD = PORTD | 0x02; // Set step to 1
+    MSDelay(1);        // Delay for 1ms
+    PORTD = PORTD & 0xFD; // Set step to 0
+    MSDelay(1);        // Delay for 1ms
+}
+}
+/*
+//limit switch interrupt code.
+INTCON=INTCON & 0xFD;//SET INTF to 0 to be safe.
+INTCON=INTCON | 0XD0;//Set GIE, PEIE, INTE, to 1.
+OPTION_REG=OPTION_REG | 0x40;//set INTEDG to 1 (interrupt on rising edge).
+*/
