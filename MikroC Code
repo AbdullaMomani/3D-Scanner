@@ -1,35 +1,108 @@
+unsigned int delay_i;
+unsigned int delay_j;
 unsigned int i;
 unsigned int j;
+unsigned long sum = 0;
+unsigned int average = 0;
+float distance;
 
 void MSdelay(unsigned int val)
 {
- for(i=0;i<val;i++)
- for(j=0;j<165;j++);
+    for(delay_i = 0; delay_i < val; delay_i++)
+        for(delay_j = 0; delay_j < 165; delay_j++);
 }
-/*void interrupt()
+
+void ADC_init(void)
 {
-if(INTCON.INTF==1)
-{
-//go- to wait until start push button (still not written).
-INTCON=INTCON | 0xFD;//set INTF to 0.
+    ADCON1 = 0xCE;//sets the ADC’s clock source, result format, and analog channel configuration
+    ADCON0 = 0x41;//sets the ADC’s conversion status, channel select bits, and ADC module enable bit
+    TRISA = 0x01;//RA0 input for the analog sensor.
 }
-}*/
+
+unsigned int analogread(void)
+{
+    unsigned int read;
+    ADCON0 = ADCON0 | 0x04;//set GO/DONE bit to 1
+    while(ADCON0 & 0x04);//condition to step, because the bit is automatically set to 0 when the conversion is done.
+    read = (ADRESH<<8) | ADRESL;//the result is a 10 bit value stored in two registers: ADRESH (for the upper 8 bits) and ADRESL (for the lower 2 bits). This line combines these two parts into a single 10 bit value.
+    return read;//returns the result of the ADC conversion
+}
+
+float convert_ADC_to_distance(unsigned int ADC_value)
+{
+    float distance;
+    distance = 200.3775040589502 - 2.2657665648980 * ADC_value + 0.0116395328796 * ADC_value * ADC_value;
+    return distance;
+}
+
+void interrupt()
+{
+    //clear the interrupt flag to allow future interrupts
+    INTCON = INTCON & 0xFE;
+}
+
 void main()
 {
-TRISD = 0x00; // Set all pins on PORTD as output
-PORTD = 0x00; // Set D0 and D1 on PORTD as 0s
-while(1)
-{//stepper 1 goes down until it hits limit switch (interrupt)
-    PORTD = PORTD & 0xFE; // Set direction to 0
-    PORTD = PORTD | 0x02; // Set step to 1
-    MSDelay(1);        // Delay for 1ms
-    PORTD = PORTD & 0xFD; // Set step to 0
-    MSDelay(1);        // Delay for 1ms
+    TRISD = 0x00; //set all pins on PORTD as output
+    PORTD = 0x00; //set PORTD as 0s
+
+    //enable global interrupts and external interrupt on INTF (RB0/INT pin)
+    INTCON = INTCON | 0x90;
+
+    //set INTEDG to 1 to trigger on a rising edge
+    OPTION_REG = OPTION_REG | 0x40;
+
+    //ADC code
+    ADC_init();
+
+    while(1)
+    {
+        //stepper 1 goes down until it hits limit switch (interrupt)
+        while((INTCON & 0x02) == 0)
+        {
+            PORTD = PORTD & 0xFE; // Set direction to 0
+            PORTD = PORTD | 0x02; // Set step to 1
+            MSdelay(1);
+            PORTD = PORTD & 0xFD; // Set step to 0
+            MSdelay(1);
+        }
+        break;
+    }
+
+    //stepper 2 moves 200 steps for a full rotation
+    for(i = 0; i < 200; i++)
+    {
+        //take 100 sensor readings and calculate the average
+        for(j = 0; j < 100; j++) {
+            sum += analogread();
+            MSdelay(1); //delay between readings to match delay between steps.
+        }
+        average = sum / 100;
+
+        distance = convert_ADC_to_distance(average);   //convert the average of the ADC readings to an actual distance
+        if(distance > 50)//in cms (my stop condition)
+        {
+            break;
+        }
+        //save the average reading to the SD card.
+        //reset sum for the next set of readings
+        sum = 0;
+
+        //move stepper 2 one step
+        PORTD = PORTD & 0xFB; // Set direction to 0
+        PORTD = PORTD | 0x08; // Set step to 1
+        MSdelay(1);           // Delay for 1ms
+        PORTD = PORTD & 0xF7; // Set step to 0
+        MSdelay(1);           // Delay for 1ms
+
+        //if a full rotation is completed, move stepper 1 one step upwards
+        if(i % 200 == 0)   //only == 0 when i==200 which means a full rotation occurred.
+        {
+            PORTD = PORTD | 0x01; // Set direction to 1 (upwards)
+            PORTD = PORTD | 0x02; // Set step to 1
+            MSdelay(1);           // Delay for 1ms
+            PORTD = PORTD & 0xFD; // Set step to 0
+            MSdelay(1);           // Delay for 1ms
+        }
+    }
 }
-}
-/*
-//limit switch interrupt code.
-INTCON=INTCON & 0xFD;//SET INTF to 0 to be safe.
-INTCON=INTCON | 0XD0;//Set GIE, PEIE, INTE, to 1.
-OPTION_REG=OPTION_REG | 0x40;//set INTEDG to 1 (interrupt on rising edge).
-*/
